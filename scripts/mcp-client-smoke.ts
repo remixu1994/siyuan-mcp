@@ -5,12 +5,6 @@ const endpoint = process.env.MCP_URL ?? "http://127.0.0.1:8080/mcp";
 const authorization = process.env.MCP_AUTHORIZATION;
 const toolName = process.env.MCP_TEST_TOOL ?? "list_notebooks";
 
-if (!authorization) {
-  throw new Error(
-    "MCP_AUTHORIZATION is required. Example: MCP_AUTHORIZATION='Bearer <MCP_FIXED_TOKEN>'",
-  );
-}
-
 let toolArguments: Record<string, unknown> = {};
 if (process.env.MCP_TEST_ARGUMENTS) {
   const parsed: unknown = JSON.parse(process.env.MCP_TEST_ARGUMENTS);
@@ -21,11 +15,10 @@ if (process.env.MCP_TEST_ARGUMENTS) {
 }
 
 const client = new Client({ name: "siyuan-mcp-smoke-client", version: "0.1.0" });
-const transport = new StreamableHTTPClientTransport(new URL(endpoint), {
-  requestInit: {
-    headers: { authorization },
-  },
-});
+const transportOptions = authorization
+  ? { requestInit: { headers: { authorization } } }
+  : {};
+const transport = new StreamableHTTPClientTransport(new URL(endpoint), transportOptions);
 
 try {
   await client.connect(transport);

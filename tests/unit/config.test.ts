@@ -8,6 +8,11 @@ const base = {
 };
 
 describe("loadConfig", () => {
+  it("loads anonymous mode without an MCP token", () => {
+    const config = loadConfig({ ...base, AUTH_MODE: "none" });
+    expect(config.auth).toEqual({ mode: "none" });
+  });
+
   it("loads fixed-token mode without mixing the SiYuan token", () => {
     const config = loadConfig({ ...base, AUTH_MODE: "fixed", MCP_FIXED_TOKEN: "1234567890abcdef" });
     expect(config.auth).toEqual({ mode: "fixed", token: "1234567890abcdef" });

@@ -10,7 +10,7 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
     HOST: z.string().default("0.0.0.0"),
     PORT: z.coerce.number().int().min(1).max(65535).default(8080),
-    AUTH_MODE: z.enum(["fixed", "oauth"]).default("fixed"),
+    AUTH_MODE: z.enum(["none", "fixed", "oauth"]).default("fixed"),
     MCP_FIXED_TOKEN: z.string().min(16).optional(),
     MCP_PUBLIC_URL: optionalUrl,
     OAUTH_ISSUER_URL: optionalUrl,
@@ -40,6 +40,7 @@ export type Config = {
   host: string;
   port: number;
   auth:
+    | { mode: "none" }
     | { mode: "fixed"; token: string }
     | {
         mode: "oauth";
@@ -60,7 +61,9 @@ export type Config = {
 export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
   const env = envSchema.parse(source);
   const auth: Config["auth"] =
-    env.AUTH_MODE === "fixed"
+    env.AUTH_MODE === "none"
+      ? { mode: "none" }
+      : env.AUTH_MODE === "fixed"
       ? { mode: "fixed", token: env.MCP_FIXED_TOKEN! }
       : {
           mode: "oauth",

@@ -35,7 +35,13 @@ HTTP 端点：
 
 ## 认证模型
 
-系统中存在两套彼此独立的认证信息，不能混用。
+Server 支持三种互斥模式：
+
+- `none`：匿名只读，只发布 4 个读取工具，不检查 `Authorization`。
+- `fixed`：固定 Bearer Token，发布全部 7 个工具。
+- `oauth`：验证 OAuth Provider 签发的 JWT，发布全部 7 个工具。
+
+无论采用哪种入口模式，MCP 入口凭据与思源 API Token 都是彼此独立的信息，不能混用。
 
 ### MCP Client → SiYuan MCP
 
@@ -74,7 +80,7 @@ SIYUAN_TOKEN=token replace-with-siyuan-token-body
 | `NODE_ENV` | 否 | `production` | `development`、`test` 或 `production`。 |
 | `HOST` | 否 | `0.0.0.0` | Server 监听地址；仅本机测试可使用 `127.0.0.1`。 |
 | `PORT` | 否 | `8080` | Server 监听端口，范围 `1-65535`。 |
-| `AUTH_MODE` | 否 | `fixed` | `fixed` 或 `oauth`。 |
+| `AUTH_MODE` | 否 | `fixed` | `none`、`fixed` 或 `oauth`。`none` 强制只读。 |
 | `MCP_FIXED_TOKEN` | `AUTH_MODE=fixed` | 无 | MCP 客户端使用的固定 Token，至少 16 个字符。不要加 `Bearer `。 |
 | `MCP_PUBLIC_URL` | `AUTH_MODE=oauth` | 无 | MCP 服务的公网 HTTPS 基础 URL，例如 `https://mcp.example.com`。 |
 | `OAUTH_ISSUER_URL` | `AUTH_MODE=oauth` | 无 | OAuth Provider 的 issuer，必须与 JWT 的 `iss` 完全一致。 |
@@ -95,11 +101,48 @@ SIYUAN_TOKEN=token replace-with-siyuan-token-body
 | 变量 | 必填 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `MCP_URL` | 否 | `http://127.0.0.1:8080/mcp` | 要测试的完整 MCP URL。 |
-| `MCP_AUTHORIZATION` | 是 | 无 | 完整认证 Header，例如 `Bearer <MCP_FIXED_TOKEN>`。 |
+| `MCP_AUTHORIZATION` | fixed/OAuth 模式必填 | 无 | 完整认证 Header，例如 `Bearer <MCP_FIXED_TOKEN>`；none 模式不要设置。 |
 | `MCP_TEST_TOOL` | 否 | `list_notebooks` | 要调用的 Tool 名称。 |
 | `MCP_TEST_ARGUMENTS` | 否 | `{}` | Tool 参数，必须是 JSON 对象字符串。 |
 
 PowerShell 环境变量名应直接使用下划线，例如 `$env:SIYUAN_TOKEN`。不要写成 `$env:SIYUAN\_TOKEN`。
+
+## 匿名只读模式
+
+匿名模式用于 ChatGPT 无身份验证连接或临时联调：
+
+```env
+NODE_ENV=production
+HOST=0.0.0.0
+PORT=8080
+AUTH_MODE=none
+
+SIYUAN_BASE_URL=https://siyuan.example.com
+SIYUAN_TOKEN=replace-with-siyuan-token-body
+SIYUAN_TIMEOUT_MS=20000
+SIYUAN_READ_RETRIES=2
+```
+
+`MCP_FIXED_TOKEN` 和全部 OAuth 变量在该模式下均不需要。Server 只发布：
+
+```text
+list_notebooks
+list_documents
+search_notes
+get_document
+```
+
+匿名模式仍允许互联网上的任何人读取和搜索全部思源笔记。它只是阻止写入，并不保护私密内容；不要用于包含私人数据的正式部署。
+
+匿名冒烟测试：
+
+```powershell
+$env:MCP_URL = "https://your-domain.example/mcp"
+Remove-Item Env:MCP_AUTHORIZATION -ErrorAction SilentlyContinue
+$env:MCP_TEST_TOOL = "list_notebooks"
+Remove-Item Env:MCP_TEST_ARGUMENTS -ErrorAction SilentlyContinue
+npm run smoke:client
+```
 
 ## 本地启动：固定 Token 模式
 
@@ -204,7 +247,7 @@ npm run smoke:client
 
 ## ChatGPT GUI
 
-`AUTH_MODE=fixed` 适用于 MCP Inspector、脚本和能够自行设置 `Authorization` Header 的客户端。ChatGPT GUI 不能用这种方式让用户输入自定义 API Key；涉及私有数据或写操作的公网 MCP 应使用 OAuth。
+`AUTH_MODE=fixed` 适用于 MCP Inspector、脚本和能够自行设置 `Authorization` Header 的客户端。ChatGPT GUI 不能用这种方式让用户输入自定义 API Key。临时连接可以选择 ChatGPT 的“无身份验证”并使用 `AUTH_MODE=none`，但只能发现 4 个只读工具；涉及私有数据或写操作的公网 MCP 应使用 OAuth。
 
 本项目在 `AUTH_MODE=oauth` 时充当 OAuth Resource Server：它验证 JWT 签名、issuer、audience、有效期及 scope，但**不负责登录页面、授权码签发或 Token 签发**。你仍需部署符合 MCP OAuth 要求的 OAuth Provider。
 
@@ -315,6 +358,7 @@ npm run build
 ## 安全与行为边界
 
 - MCP Token 与思源 Token 分离，服务端日志不记录认证 Header 或 Token。
+- `AUTH_MODE=none` 不注册任何写入工具，但仍会向所有匿名访问者暴露全部可读笔记内容。
 - 日志不记录完整 Markdown 或完整笔记内容。
 - SQL 完全由 Server 根据结构化参数生成，MCP Client 不能提交任意 SQL。
 - `create_document` 在写入前检查路径，不覆盖同路径文档。

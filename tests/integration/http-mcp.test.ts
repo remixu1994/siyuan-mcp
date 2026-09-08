@@ -73,6 +73,24 @@ describe("HTTP MCP endpoint", () => {
     await app.close();
   });
 
+  it("accepts an unauthenticated client in anonymous mode", async () => {
+    const app = buildApp({ ...config, auth: { mode: "none" } });
+    const response = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { accept: "application/json, text/event-stream" },
+      payload: initializeBody,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["www-authenticate"]).toBeUndefined();
+    expect(response.json()).toMatchObject({
+      jsonrpc: "2.0",
+      id: 1,
+      result: { serverInfo: { name: "siyuan-mcp" } },
+    });
+    await app.close();
+  });
+
   it("publishes OAuth discovery and accepts a valid JWT for ChatGPT mode", async () => {
     const { privateKey, publicKey } = await generateKeyPair("RS256");
     const jwk = await exportJWK(publicKey);

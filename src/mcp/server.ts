@@ -109,7 +109,9 @@ export function createMcpServer(service: SiYuanNoteService, auth: Config["auth"]
     toolHandler("get_document", ({ documentId }) => service.getDocument(documentId)),
   );
 
-  registerWriteTools(server, service, securitySchemes);
+  if (auth.mode !== "none") {
+    registerWriteTools(server, service, securitySchemes);
+  }
   return server;
 }
 

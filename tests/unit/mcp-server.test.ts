@@ -5,6 +5,26 @@ import { createMcpServer } from "../../src/mcp/server.js";
 import type { SiYuanNoteService } from "../../src/services/siyuan-note-service.js";
 
 describe("MCP server", () => {
+  it("publishes only read tools in anonymous mode", async () => {
+    const service = {} as SiYuanNoteService;
+    const server = createMcpServer(service, { mode: "none" });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "vitest", version: "1.0.0" });
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "list_notebooks",
+      "list_documents",
+      "search_notes",
+      "get_document",
+    ]);
+
+    await client.close();
+    await server.close();
+  });
+
   it("lists all seven tools and calls a tool", async () => {
     const service = {
       listNotebooks: vi.fn().mockResolvedValue({

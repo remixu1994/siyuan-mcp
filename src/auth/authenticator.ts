@@ -15,7 +15,18 @@ export interface Authenticator {
 }
 
 export function createAuthenticator(config: Config["auth"]): Authenticator {
+  if (config.mode === "none") return new AnonymousAuthenticator();
   return config.mode === "fixed" ? new FixedTokenAuthenticator(config.token) : new OAuthAuthenticator(config);
+}
+
+class AnonymousAuthenticator implements Authenticator {
+  async authenticate(): Promise<AuthContext> {
+    return { subject: "anonymous", scopes: ["siyuan.read"] };
+  }
+
+  challenge(): void {
+    // Anonymous mode never rejects a request for missing credentials.
+  }
 }
 
 class FixedTokenAuthenticator implements Authenticator {
