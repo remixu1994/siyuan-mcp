@@ -1,0 +1,15 @@
+export const errorCodes = [
+  "INVALID_ARGUMENT",
+  "UNAUTHORIZED",
+  "SIYUAN_UNAVAILABLE",
+  "SIYUAN_AUTH_FAILED",
+  "NOTEBOOK_NOT_FOUND",
+  "DOCUMENT_NOT_FOUND",
+  "BLOCK_NOT_FOUND",
+  "DOCUMENT_ALREADY_EXISTS",
+  "SEARCH_UNAVAILABLE",
+  "OPERATION_FAILED",
+  "OPERATION_STATUS_UNKNOWN",
+] as const;
+
+export type ErrorCode = (typeof errorCodes)[number];

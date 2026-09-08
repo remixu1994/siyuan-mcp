@@ -1,0 +1,31 @@
+{
+  "name": "siyuan-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remote MCP server for securely searching and editing SiYuan notes",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "smoke:client": "tsx scripts/mcp-client-smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "fastify": "^5.12.3",
+    "jose": "^6.2.12",
+    "pino": "^9.9.5",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "tsx": "^4.20.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}
