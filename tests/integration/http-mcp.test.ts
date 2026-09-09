@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import Fastify from "fastify";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
@@ -147,5 +148,148 @@ describe("HTTP MCP endpoint", () => {
 
     await app.close();
     await issuerServer.close();
+  });
+
+  it("runs the mock OAuth authorization-code and PKCE flow", async () => {
+    const publicUrl = "https://mcp.example.com";
+    const clientId = "chatgpt-siyuan-mcp";
+    const redirectUri = "https://chatgpt.com/connector/oauth/test";
+    const verifier = "mock-pkce-verifier-that-is-longer-than-forty-three-characters";
+    const challenge = createHash("sha256").update(verifier).digest("base64url");
+    const mockConfig: Config = {
+      ...config,
+      auth: {
+        mode: "mock-oauth",
+        publicUrl,
+        clientId,
+        redirectUri,
+        accessCode: "a-secure-temporary-code",
+        scopes: ["siyuan.read", "siyuan.write"],
+        tokenTtlSeconds: 600,
+      },
+      notebookAccess: { allowlist: ["20250220160346-dudilkq"], denylist: [] },
+    };
+    const app = buildApp(mockConfig);
+
+    const protectedMetadata = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-protected-resource",
+    });
+    expect(protectedMetadata.json()).toMatchObject({
+      resource: publicUrl,
+      authorization_servers: [publicUrl],
+    });
+
+    const authorizationMetadata = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server",
+    });
+    expect(authorizationMetadata.json()).toMatchObject({
+      issuer: publicUrl,
+      authorization_endpoint: `${publicUrl}/authorize`,
+      token_endpoint: `${publicUrl}/token`,
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+    });
+
+    const unauthenticated = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { accept: "application/json, text/event-stream" },
+      payload: initializeBody,
+    });
+    expect(unauthenticated.statusCode).toBe(401);
+    expect(unauthenticated.headers["www-authenticate"]).toContain(
+      `${publicUrl}/.well-known/oauth-protected-resource`,
+    );
+
+    const authorizeQuery = new URLSearchParams({
+      response_type: "code",
+      client_id: clientId,
+      redirect_uri: redirectUri,
+      resource: publicUrl,
+      scope: "siyuan.read",
+      state: "chatgpt-state",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+    });
+    const authorizationPage = await app.inject({
+      method: "GET",
+      url: `/authorize?${authorizeQuery}`,
+    });
+    expect(authorizationPage.statusCode).toBe(200);
+    const requestId = /name="request_id" value="([^"]+)"/u.exec(authorizationPage.body)?.[1];
+    expect(requestId).toBeTruthy();
+
+    const approval = await app.inject({
+      method: "POST",
+      url: "/authorize",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        request_id: requestId!,
+        access_code: "a-secure-temporary-code",
+      }).toString(),
+    });
+    expect(approval.statusCode).toBe(302);
+    const callback = new URL(approval.headers.location!);
+    expect(callback.origin + callback.pathname).toBe(redirectUri);
+    expect(callback.searchParams.get("state")).toBe("chatgpt-state");
+
+    const tokenResponse = await app.inject({
+      method: "POST",
+      url: "/token",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        resource: publicUrl,
+        code: callback.searchParams.get("code")!,
+        code_verifier: verifier,
+      }).toString(),
+    });
+    expect(tokenResponse.statusCode).toBe(200);
+    expect(tokenResponse.json()).toMatchObject({
+      token_type: "Bearer",
+      expires_in: 600,
+      scope: "siyuan.read",
+    });
+    const accessToken = tokenResponse.json<{ access_token: string }>().access_token;
+
+    const initialized = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        accept: "application/json, text/event-stream",
+      },
+      payload: initializeBody,
+    });
+    expect(initialized.statusCode).toBe(200);
+
+    const writeWithReadScope = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        accept: "application/json, text/event-stream",
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: {
+          name: "create_document",
+          arguments: {
+            notebookId: "20250220160346-dudilkq",
+            path: "/Forbidden",
+            markdown: "# Forbidden",
+          },
+        },
+      },
+    });
+    expect(writeWithReadScope.statusCode).toBe(403);
+
+    await app.close();
   });
 });

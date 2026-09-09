@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { Config } from "../config/env.js";
 import { AppError } from "../errors/app-error.js";
+import type { MockOAuthProvider } from "./mock-oauth-provider.js";
 
 export interface AuthContext {
   subject: string;
@@ -14,9 +15,17 @@ export interface Authenticator {
   challenge(reply: FastifyReply, error?: string): void;
 }
 
-export function createAuthenticator(config: Config["auth"]): Authenticator {
+export function createAuthenticator(
+  config: Config["auth"],
+  mockOAuthProvider?: MockOAuthProvider,
+): Authenticator {
   if (config.mode === "none") return new AnonymousAuthenticator(config.writeEnabled);
-  return config.mode === "fixed" ? new FixedTokenAuthenticator(config.token) : new OAuthAuthenticator(config);
+  if (config.mode === "fixed") return new FixedTokenAuthenticator(config.token);
+  if (config.mode === "mock-oauth") {
+    if (!mockOAuthProvider) throw new Error("Mock OAuth provider is required.");
+    return new MockOAuthAuthenticator(config.publicUrl, mockOAuthProvider);
+  }
+  return new OAuthAuthenticator(config);
 }
 
 class AnonymousAuthenticator implements Authenticator {
@@ -88,6 +97,31 @@ class OAuthAuthenticator implements Authenticator {
     reply.header(
       "www-authenticate",
       `Bearer resource_metadata="${metadataUrl}", error="${error}", error_description="OAuth authorization is required"`,
+    );
+  }
+}
+
+class MockOAuthAuthenticator implements Authenticator {
+  constructor(
+    private readonly publicUrl: string,
+    private readonly provider: MockOAuthProvider,
+  ) {}
+
+  async authenticate(request: FastifyRequest): Promise<AuthContext> {
+    const token = readBearerToken(request.headers.authorization);
+    const context = token ? this.provider.verifyAccessToken(token) : undefined;
+    if (!context) throw new AppError("UNAUTHORIZED", "OAuth authorization is required.", 401);
+    const requiredScope = requiredScopeForRequest(request);
+    if (requiredScope && !context.scopes.includes(requiredScope)) {
+      throw new AppError("UNAUTHORIZED", "The access token has insufficient scope.", 403);
+    }
+    return context;
+  }
+
+  challenge(reply: FastifyReply, error = "invalid_token"): void {
+    reply.header(
+      "www-authenticate",
+      `Bearer resource_metadata="${this.publicUrl}/.well-known/oauth-protected-resource", error="${error}"`,
     );
   }
 }

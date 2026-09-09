@@ -22,14 +22,18 @@ const envSchema = z
     NODE_ENV: z.enum(["development", "test", "production"]).default("production"),
     HOST: z.string().default("0.0.0.0"),
     PORT: z.coerce.number().int().min(1).max(65535).default(8080),
-    AUTH_MODE: z.enum(["none", "fixed", "oauth"]).default("fixed"),
+    AUTH_MODE: z.enum(["none", "fixed", "oauth", "mock-oauth"]).default("fixed"),
     ANONYMOUS_WRITE_ENABLED: booleanString,
     MCP_FIXED_TOKEN: z.string().min(16).optional(),
     MCP_PUBLIC_URL: optionalUrl,
     OAUTH_ISSUER_URL: optionalUrl,
     OAUTH_AUDIENCE: z.string().min(1).optional(),
     OAUTH_JWKS_URL: optionalUrl,
-    OAUTH_SCOPES: z.string().default("siyuan.read siyuan.write"),
+    OAUTH_SCOPES: z.string().trim().min(1).default("siyuan.read siyuan.write"),
+    MOCK_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+    MOCK_OAUTH_REDIRECT_URI: optionalUrl,
+    MOCK_OAUTH_ACCESS_CODE: z.string().min(16).optional(),
+    MOCK_OAUTH_TOKEN_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(3_600),
     SIYUAN_BASE_URL: z.string().url(),
     SIYUAN_TOKEN: z.string().min(1),
     SIYUAN_NOTEBOOK_ALLOWLIST: notebookIdList,
@@ -59,6 +63,25 @@ const envSchema = z
         }
       }
     }
+    if (env.AUTH_MODE === "mock-oauth") {
+      for (const key of [
+        "MCP_PUBLIC_URL",
+        "MOCK_OAUTH_CLIENT_ID",
+        "MOCK_OAUTH_REDIRECT_URI",
+        "MOCK_OAUTH_ACCESS_CODE",
+      ] as const) {
+        if (!env[key]) {
+          context.addIssue({ code: "custom", path: [key], message: "required in mock-oauth mode" });
+        }
+      }
+      if (splitNotebookIds(env.SIYUAN_NOTEBOOK_ALLOWLIST).length === 0) {
+        context.addIssue({
+          code: "custom",
+          path: ["SIYUAN_NOTEBOOK_ALLOWLIST"],
+          message: "a non-empty allowlist is required in mock-oauth mode",
+        });
+      }
+    }
   });
 
 export type Config = {
@@ -75,6 +98,15 @@ export type Config = {
         audience: string;
         jwksUrl?: string;
         scopes: string[];
+      }
+    | {
+        mode: "mock-oauth";
+        publicUrl: string;
+        clientId: string;
+        redirectUri: string;
+        accessCode: string;
+        scopes: string[];
+        tokenTtlSeconds: number;
       };
   siyuan: {
     baseUrl: string;
@@ -95,13 +127,23 @@ export function loadConfig(source: NodeJS.ProcessEnv = process.env): Config {
       ? { mode: "none", writeEnabled: env.ANONYMOUS_WRITE_ENABLED }
       : env.AUTH_MODE === "fixed"
       ? { mode: "fixed", token: env.MCP_FIXED_TOKEN! }
-      : {
+      : env.AUTH_MODE === "oauth"
+      ? {
           mode: "oauth",
           publicUrl: stripTrailingSlash(env.MCP_PUBLIC_URL!),
           issuerUrl: env.OAUTH_ISSUER_URL!,
           audience: env.OAUTH_AUDIENCE!,
           ...(env.OAUTH_JWKS_URL ? { jwksUrl: env.OAUTH_JWKS_URL } : {}),
           scopes: env.OAUTH_SCOPES.split(/\s+/u).filter(Boolean),
+        }
+      : {
+          mode: "mock-oauth",
+          publicUrl: stripTrailingSlash(env.MCP_PUBLIC_URL!),
+          clientId: env.MOCK_OAUTH_CLIENT_ID!,
+          redirectUri: env.MOCK_OAUTH_REDIRECT_URI!,
+          accessCode: env.MOCK_OAUTH_ACCESS_CODE!,
+          scopes: env.OAUTH_SCOPES.split(/\s+/u).filter(Boolean),
+          tokenTtlSeconds: env.MOCK_OAUTH_TOKEN_TTL_SECONDS,
         };
 
   return {

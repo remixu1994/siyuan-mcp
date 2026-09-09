@@ -11,7 +11,9 @@ MCP Client ── Fixed Bearer ───┘
 Anonymous client ── No auth ──> SiYuan MCP（默认只读；可开启白名单内写入）
 ```
 
-三种入口模式是部署时互斥的 `AUTH_MODE`，不能在同一实例中混用。`none` 模式默认只注册只读工具；只有 `ANONYMOUS_WRITE_ENABLED=true` 且笔记本白名单非空时才注册写工具。`SIYUAN_TOKEN` 永远只存在于服务端。
+四种入口模式是部署时互斥的 `AUTH_MODE`，不能在同一实例中混用。`none` 模式默认只注册只读工具；只有 `ANONYMOUS_WRITE_ENABLED=true` 且笔记本白名单非空时才注册写工具。`SIYUAN_TOKEN` 永远只存在于服务端。
+
+过渡部署还提供显式 `mock-oauth` 模式：当前 MCP 进程临时提供预注册公共客户端、访问码授权页、Authorization Code + PKCE S256 和内存 Access Token。它用于 ChatGPT 联调，不替代正式 OAuth Authorization Server。
 
 ## 相对基础方案的必要调整
 
@@ -55,6 +57,7 @@ SQL 仅由服务端模板生成并转义参数。MCP schema 不存在 `sql` 输�
 - 写调用不重试；网络或网关结果不确定时返回 `OPERATION_STATUS_UNKNOWN`。
 - 工具错误不返回堆栈、文件路径、Token 或 Authorization Header。
 - 笔记本白名单和黑名单约束全部读写工具，黑名单优先；匿名写入强制要求非空白名单。
+- mock OAuth 强制使用 PKCE S256、一次性授权码、精确 redirect URI 和 resource 绑定，并要求非空笔记本白名单；进程重启后 Token 失效。
 
 ## 容器交付
 

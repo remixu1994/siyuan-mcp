@@ -22,7 +22,9 @@ export function createMcpServer(service: SiYuanNoteService, auth: Config["auth"]
     },
   );
   const securitySchemes =
-    auth.mode === "oauth" ? [{ type: "oauth2" as const, scopes: auth.scopes }] : undefined;
+    auth.mode === "oauth" || auth.mode === "mock-oauth"
+      ? [{ type: "oauth2" as const, scopes: auth.scopes }]
+      : undefined;
 
   server.registerTool(
     "list_notebooks",

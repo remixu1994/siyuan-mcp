@@ -32,14 +32,16 @@ HTTP 端点：
 - `OPTIONS /mcp`：跨域预检。
 - `GET /health`：公开健康检查，正常时返回 `{"status":"ok"}`。
 - `GET /.well-known/oauth-protected-resource`：仅在 OAuth 模式启用。
+- `GET /.well-known/oauth-authorization-server`、`GET/POST /authorize`、`POST /token`：仅在 mock OAuth 模式启用。
 
 ## 认证模型
 
-Server 支持三种互斥模式：
+Server 支持四种互斥模式：
 
 - `none`：不检查 `Authorization`。默认只发布 4 个读取工具；可显式开启受笔记本白名单约束的写工具。
 - `fixed`：固定 Bearer Token，发布全部 7 个工具。
 - `oauth`：验证 OAuth Provider 签发的 JWT，发布全部 7 个工具。
+- `mock-oauth`：内置临时 OAuth Authorization Server，通过访问码、Authorization Code 和 PKCE S256 签发内存 Token，发布全部 7 个工具。
 
 无论采用哪种入口模式，MCP 入口凭据与思源 API Token 都是彼此独立的信息，不能混用。
 
@@ -80,14 +82,18 @@ SIYUAN_TOKEN=token replace-with-siyuan-token-body
 | `NODE_ENV` | 否 | `production` | `development`、`test` 或 `production`。 |
 | `HOST` | 否 | `0.0.0.0` | Server 监听地址；仅本机测试可使用 `127.0.0.1`。 |
 | `PORT` | 否 | `8080` | Server 监听端口，范围 `1-65535`。 |
-| `AUTH_MODE` | 否 | `fixed` | `none`、`fixed` 或 `oauth`。 |
+| `AUTH_MODE` | 否 | `fixed` | `none`、`fixed`、`oauth` 或 `mock-oauth`。 |
 | `ANONYMOUS_WRITE_ENABLED` | 否 | `false` | 仅 `AUTH_MODE=none` 生效；设为 `true` 后发布写工具，并强制要求非空笔记本白名单。 |
 | `MCP_FIXED_TOKEN` | `AUTH_MODE=fixed` | 无 | MCP 客户端使用的固定 Token，至少 16 个字符。不要加 `Bearer `。 |
-| `MCP_PUBLIC_URL` | `AUTH_MODE=oauth` | 无 | MCP 服务的公网 HTTPS 基础 URL，例如 `https://mcp.example.com`。 |
+| `MCP_PUBLIC_URL` | `oauth`/`mock-oauth` | 无 | MCP 服务的公网 HTTPS 基础 URL，例如 `https://mcp.example.com`。 |
 | `OAUTH_ISSUER_URL` | `AUTH_MODE=oauth` | 无 | OAuth Provider 的 issuer，必须与 JWT 的 `iss` 完全一致。 |
 | `OAUTH_AUDIENCE` | `AUTH_MODE=oauth` | 无 | JWT 必须包含的 audience。 |
 | `OAUTH_JWKS_URL` | 否 | `<issuer>/.well-known/jwks.json` | JWT 公钥集合地址；Provider 使用默认地址时可省略。 |
 | `OAUTH_SCOPES` | 否 | `siyuan.read siyuan.write` | 空格分隔的可用 scope。 |
+| `MOCK_OAUTH_CLIENT_ID` | `AUTH_MODE=mock-oauth` | 无 | ChatGPT 页面中填写的预注册公共客户端 ID。 |
+| `MOCK_OAUTH_REDIRECT_URI` | `AUTH_MODE=mock-oauth` | 无 | ChatGPT 当前连接显示的完整回调 URL，必须精确匹配。 |
+| `MOCK_OAUTH_ACCESS_CODE` | `AUTH_MODE=mock-oauth` | 无 | 浏览器授权页要求输入的临时访问码，至少 16 个字符，建议随机 32 字节。 |
+| `MOCK_OAUTH_TOKEN_TTL_SECONDS` | 否 | `3600` | 临时 Access Token 有效期，范围 `300-86400` 秒。 |
 | `SIYUAN_BASE_URL` | 是 | 无 | 思源服务基础 URL，例如 `http://127.0.0.1:6806` 或公网 HTTPS 地址；不要包含 Markdown 链接语法。 |
 | `SIYUAN_TOKEN` | 是 | 无 | 思源 API Token 本体；不要添加 `Token ` 或 `token ` 前缀。 |
 | `SIYUAN_NOTEBOOK_ALLOWLIST` | 否 | 空 | 逗号或空白分隔的思源笔记本 ID。非空时只允许访问这些笔记本；匿名写入时必填。 |
@@ -273,6 +279,42 @@ npm run smoke:client
 
 本项目在 `AUTH_MODE=oauth` 时充当 OAuth Resource Server：它验证 JWT 签名、issuer、audience、有效期及 scope，但**不负责登录页面、授权码签发或 Token 签发**。你仍需部署符合 MCP OAuth 要求的 OAuth Provider。
 
+### 临时 mock OAuth
+
+在独立 OAuth 服务完成前，可以让当前 MCP Server 临时同时承担 Authorization Server。该模式实现标准 discovery、Authorization Code、PKCE S256、`resource` 绑定、一次性授权码和访问码页面，但 code 与 Token 只保存在当前进程内存中。
+
+```env
+AUTH_MODE=mock-oauth
+MCP_PUBLIC_URL=https://siyuan-mcp.sunmoon.cool
+OAUTH_SCOPES=siyuan.read siyuan.write
+
+MOCK_OAUTH_CLIENT_ID=chatgpt-siyuan-mcp
+MOCK_OAUTH_REDIRECT_URI=https://chatgpt.com/connector/oauth/replace-with-current-callback-id
+MOCK_OAUTH_ACCESS_CODE=replace-with-a-long-random-secret
+MOCK_OAUTH_TOKEN_TTL_SECONDS=3600
+
+SIYUAN_NOTEBOOK_ALLOWLIST=20250220160346-dudilkq
+SIYUAN_NOTEBOOK_DENYLIST=
+```
+
+mock OAuth 强制要求非空笔记本白名单。ChatGPT 配置填写：
+
+```text
+身份验证：OAuth
+注册方法：用户自定义的 OAuth 客户端
+OAuth 客户端 ID：chatgpt-siyuan-mcp
+OAuth 客户端密钥：留空
+令牌端点认证方法：none
+默认作用域：siyuan.read siyuan.write
+基础范围：siyuan.read siyuan.write
+Auth URL：https://siyuan-mcp.sunmoon.cool/authorize
+Token URL：https://siyuan-mcp.sunmoon.cool/token
+授权服务器基础：https://siyuan-mcp.sunmoon.cool
+资源：https://siyuan-mcp.sunmoon.cool
+```
+
+创建或连接插件时，浏览器会打开授权页，输入 `MOCK_OAUTH_ACCESS_CODE` 后才会返回 ChatGPT。容器重启会清空所有授权请求和 Access Token，需要重新连接授权。该模式没有用户账户、持久会话、撤销、审计、密钥轮换或分布式状态，只应用于受控的过渡期部署，不能替代正式 OAuth 服务。
+
 示例配置：
 
 ```env
@@ -382,6 +424,7 @@ npm run build
 - MCP Token 与思源 Token 分离，服务端日志不记录认证 Header 或 Token。
 - `AUTH_MODE=none` 默认不注册写入工具；启用匿名写入后，仅允许操作白名单中的笔记本。
 - 笔记本黑白名单在服务层约束全部 7 个工具，黑名单优先，文档 ID 和块 ID 不能绕过检查。
+- `mock-oauth` 使用访问码和 PKCE，但 Token 仅存于单进程内存；重启失效，不应作为正式身份系统。
 - 日志不记录完整 Markdown 或完整笔记内容。
 - SQL 完全由 Server 根据结构化参数生成，MCP Client 不能提交任意 SQL。
 - `create_document` 在写入前检查路径，不覆盖同路径文档。

@@ -3,6 +3,7 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 import Fastify, { type FastifyInstance } from "fastify";
 import type { Config } from "./config/env.js";
 import { createAuthenticator } from "./auth/authenticator.js";
+import { MockOAuthProvider, registerMockOAuthRoutes } from "./auth/mock-oauth-provider.js";
 import { AppError, asAppError } from "./errors/app-error.js";
 import { createMcpServer } from "./mcp/server.js";
 import { SiYuanClient } from "./services/siyuan-client.js";
@@ -14,7 +15,8 @@ export function buildApp(config: Config): FastifyInstance {
     bodyLimit: 2_100_000,
     requestIdHeader: "x-request-id",
   });
-  const authenticator = createAuthenticator(config.auth);
+  const mockOAuthProvider = config.auth.mode === "mock-oauth" ? new MockOAuthProvider(config.auth) : undefined;
+  const authenticator = createAuthenticator(config.auth, mockOAuthProvider);
   const client = new SiYuanClient({
     ...config.siyuan,
     logger: app.log,
@@ -23,15 +25,18 @@ export function buildApp(config: Config): FastifyInstance {
 
   app.get("/health", async () => ({ status: "ok" }));
 
-  if (config.auth.mode === "oauth") {
+  if (config.auth.mode === "oauth" || config.auth.mode === "mock-oauth") {
     const oauth = config.auth;
+    const issuerUrl = oauth.mode === "oauth" ? oauth.issuerUrl : oauth.publicUrl;
     app.get("/.well-known/oauth-protected-resource", async () => ({
       resource: oauth.publicUrl,
-      authorization_servers: [oauth.issuerUrl],
+      authorization_servers: [issuerUrl],
       scopes_supported: oauth.scopes,
       resource_documentation: `${oauth.publicUrl}/docs`,
     }));
   }
+
+  if (mockOAuthProvider) registerMockOAuthRoutes(app, mockOAuthProvider);
 
   app.options("/mcp", async (_request, reply) => {
     return reply

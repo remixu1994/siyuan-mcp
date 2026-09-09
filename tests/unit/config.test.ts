@@ -58,4 +58,26 @@ describe("loadConfig", () => {
       issuerUrl: "https://issuer.example.com/",
     });
   });
+
+  it("requires all mock OAuth settings and a notebook allowlist", () => {
+    expect(() => loadConfig({ ...base, AUTH_MODE: "mock-oauth" })).toThrow();
+  });
+
+  it("loads mock OAuth mode for a predefined public client", () => {
+    const config = loadConfig({
+      ...base,
+      AUTH_MODE: "mock-oauth",
+      MCP_PUBLIC_URL: "https://mcp.example.com/",
+      MOCK_OAUTH_CLIENT_ID: "chatgpt-siyuan-mcp",
+      MOCK_OAUTH_REDIRECT_URI: "https://chatgpt.com/connector/oauth/test",
+      MOCK_OAUTH_ACCESS_CODE: "a-secure-temporary-code",
+      SIYUAN_NOTEBOOK_ALLOWLIST: "20250220160346-dudilkq",
+    });
+    expect(config.auth).toMatchObject({
+      mode: "mock-oauth",
+      publicUrl: "https://mcp.example.com",
+      clientId: "chatgpt-siyuan-mcp",
+      tokenTtlSeconds: 3_600,
+    });
+  });
 });
