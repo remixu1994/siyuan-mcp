@@ -227,7 +227,20 @@ export function registerMockOAuthRoutes(app: FastifyInstance, provider: MockOAut
 
   app.post("/authorize", async (request, reply) => {
     try {
-      return reply.redirect(provider.approve(request.body as Record<string, unknown>), 302);
+      const callbackUrl = provider.approve(request.body as Record<string, unknown>);
+      const escapedCallbackUrl = escapeHtml(callbackUrl);
+      return reply
+        .code(303)
+        .headers({
+          ...htmlSecurityHeaders(),
+          location: callbackUrl,
+          refresh: `0;url=${callbackUrl}`,
+        })
+        .type("text/html; charset=utf-8")
+        .send(`<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<meta http-equiv="refresh" content="0;url=${escapedCallbackUrl}"><title>正在返回 ChatGPT</title></head>
+<body><p>正在返回 ChatGPT……</p><p><a href="${escapedCallbackUrl}">如果没有自动跳转，请点击这里继续授权</a></p></body></html>`);
     } catch (error) {
       return sendOAuthError(reply, error);
     }

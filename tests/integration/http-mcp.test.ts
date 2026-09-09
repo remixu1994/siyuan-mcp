@@ -244,7 +244,9 @@ describe("HTTP MCP endpoint", () => {
         access_code: "a-secure-temporary-code",
       }).toString(),
     });
-    expect(approval.statusCode).toBe(302);
+    expect(approval.statusCode).toBe(303);
+    expect(approval.headers.refresh).toContain("https://chatgpt.com/connector/oauth/test");
+    expect(approval.body).toContain("如果没有自动跳转，请点击这里继续授权");
     const callback = new URL(approval.headers.location!);
     expect(callback.origin + callback.pathname).toBe(redirectUri);
     expect(callback.searchParams.get("state")).toBe("chatgpt-state");
