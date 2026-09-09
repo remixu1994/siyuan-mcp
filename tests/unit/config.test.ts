@@ -10,7 +10,28 @@ const base = {
 describe("loadConfig", () => {
   it("loads anonymous mode without an MCP token", () => {
     const config = loadConfig({ ...base, AUTH_MODE: "none" });
-    expect(config.auth).toEqual({ mode: "none" });
+    expect(config.auth).toEqual({ mode: "none", writeEnabled: false });
+    expect(config.notebookAccess).toEqual({ allowlist: [], denylist: [] });
+  });
+
+  it("requires an allowlist before enabling anonymous writes", () => {
+    expect(() =>
+      loadConfig({ ...base, AUTH_MODE: "none", ANONYMOUS_WRITE_ENABLED: "true" }),
+    ).toThrow();
+  });
+
+  it("loads anonymous writes with notebook allow and deny lists", () => {
+    const allowed = "20250220160346-dudilkq";
+    const denied = "20240101000000-abcdefg";
+    const config = loadConfig({
+      ...base,
+      AUTH_MODE: "none",
+      ANONYMOUS_WRITE_ENABLED: "true",
+      SIYUAN_NOTEBOOK_ALLOWLIST: `${allowed}, ${allowed}`,
+      SIYUAN_NOTEBOOK_DENYLIST: denied,
+    });
+    expect(config.auth).toEqual({ mode: "none", writeEnabled: true });
+    expect(config.notebookAccess).toEqual({ allowlist: [allowed], denylist: [denied] });
   });
 
   it("loads fixed-token mode without mixing the SiYuan token", () => {

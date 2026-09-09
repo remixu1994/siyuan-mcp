@@ -19,7 +19,7 @@ export function buildApp(config: Config): FastifyInstance {
     ...config.siyuan,
     logger: app.log,
   });
-  const service = new SiYuanNoteService(client);
+  const service = new SiYuanNoteService(client, config.notebookAccess);
 
   app.get("/health", async () => ({ status: "ok" }));
 

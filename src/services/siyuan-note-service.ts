@@ -29,17 +29,29 @@ export interface SearchResult {
   snippet: string;
 }
 
+export interface NotebookAccessPolicy {
+  allowlist: string[];
+  denylist: string[];
+}
+
 export class SiYuanNoteService {
-  constructor(private readonly client: SiYuanClient) {}
+  readonly #allowlist: Set<string>;
+  readonly #denylist: Set<string>;
+
+  constructor(
+    private readonly client: SiYuanClient,
+    access: NotebookAccessPolicy = { allowlist: [], denylist: [] },
+  ) {
+    this.#allowlist = new Set(access.allowlist);
+    this.#denylist = new Set(access.denylist);
+  }
 
   async listNotebooks(): Promise<{ notebooks: NotebookResult[] }> {
-    const data = await this.client.post<{ notebooks: SiYuanNotebook[] }>(
-      "/api/notebook/lsNotebooks",
-      {},
-      "read",
-    );
+    const data = await this.readNotebooks();
     return {
-      notebooks: data.notebooks.map(({ id, name, closed }) => ({ id, name, closed })),
+      notebooks: data.notebooks
+        .filter(({ id }) => this.isNotebookAllowed(id))
+        .map(({ id, name, closed }) => ({ id, name, closed })),
     };
   }
 
@@ -76,7 +88,9 @@ export class SiYuanNoteService {
   ): Promise<{ results: SearchResult[] }> {
     if (notebookId) await this.assertNotebookExists(notebookId);
     const needle = `%${escapeLike(query.trim())}%`;
-    const notebookClause = notebookId ? ` AND b.box = '${sqlLiteral(notebookId)}'` : "";
+    const notebookClause = notebookId
+      ? ` AND b.box = '${sqlLiteral(notebookId)}'`
+      : this.notebookAccessSql("b.box");
     const statement = [
       "SELECT b.id, b.root_id, b.box, b.path, b.hpath, b.content, b.markdown, b.type, b.updated,",
       "COALESCE((SELECT r.content FROM blocks r WHERE r.id = b.root_id LIMIT 1), '') AS title",
@@ -115,7 +129,7 @@ export class SiYuanNoteService {
     path: string;
     markdown: string;
   }> {
-    await this.assertDocumentExists(documentId);
+    await this.assertDocumentAccessible(documentId);
     const data = await this.client.post<{ hPath: string; content: string }>(
       "/api/export/exportMdContent",
       { id: documentId },
@@ -156,7 +170,7 @@ export class SiYuanNoteService {
     documentId: string,
     markdown: string,
   ): Promise<{ documentId: string; appended: true; blockIds: string[] }> {
-    await this.assertDocumentExists(documentId);
+    await this.assertDocumentAccessible(documentId);
     const transactions = await this.client.post<SiYuanTransaction[]>(
       "/api/block/appendBlock",
       { dataType: "markdown", data: markdown, parentID: documentId },
@@ -170,7 +184,7 @@ export class SiYuanNoteService {
   }
 
   async updateBlock(blockId: string, markdown: string): Promise<{ blockId: string; updated: true }> {
-    await this.assertBlockExists(blockId);
+    await this.assertBlockAccessible(blockId);
     await this.client.post<SiYuanTransaction[]>(
       "/api/block/updateBlock",
       { dataType: "markdown", data: markdown, id: blockId },
@@ -179,33 +193,70 @@ export class SiYuanNoteService {
     return { blockId, updated: true };
   }
 
-  private async query(statement: string): Promise<SiYuanBlockRow[]> {
-    return this.client.post<SiYuanBlockRow[]>("/api/query/sql", { stmt: statement }, "read");
+  private async query<T = SiYuanBlockRow>(statement: string): Promise<T[]> {
+    return this.client.post<T[]>("/api/query/sql", { stmt: statement }, "read");
   }
 
   private async assertNotebookExists(notebookId: string): Promise<void> {
-    const { notebooks } = await this.listNotebooks();
+    this.assertNotebookAllowed(notebookId);
+    const { notebooks } = await this.readNotebooks();
     if (!notebooks.some((notebook) => notebook.id === notebookId)) {
       throw new AppError("NOTEBOOK_NOT_FOUND", "The requested SiYuan notebook does not exist.", 404);
     }
   }
 
-  private async assertDocumentExists(documentId: string): Promise<void> {
-    const rows = await this.query(
-      `SELECT id FROM blocks WHERE id = '${sqlLiteral(documentId)}' AND type = 'd' LIMIT 1`,
+  private async assertDocumentAccessible(documentId: string): Promise<void> {
+    const rows = await this.query<{ id: string; box: string }>(
+      `SELECT id, box FROM blocks WHERE id = '${sqlLiteral(documentId)}' AND type = 'd' LIMIT 1`,
     );
     if (rows.length === 0) {
       throw new AppError("DOCUMENT_NOT_FOUND", "The requested SiYuan document does not exist.", 404);
     }
+    this.assertNotebookAllowed(rows[0]!.box);
   }
 
-  private async assertBlockExists(blockId: string): Promise<void> {
-    const rows = await this.query(
-      `SELECT id FROM blocks WHERE id = '${sqlLiteral(blockId)}' LIMIT 1`,
+  private async assertBlockAccessible(blockId: string): Promise<void> {
+    const rows = await this.query<{ id: string; box: string }>(
+      `SELECT id, box FROM blocks WHERE id = '${sqlLiteral(blockId)}' LIMIT 1`,
     );
     if (rows.length === 0) {
       throw new AppError("BLOCK_NOT_FOUND", "The requested SiYuan block does not exist.", 404);
     }
+    this.assertNotebookAllowed(rows[0]!.box);
+  }
+
+  private readNotebooks(): Promise<{ notebooks: SiYuanNotebook[] }> {
+    return this.client.post<{ notebooks: SiYuanNotebook[] }>(
+      "/api/notebook/lsNotebooks",
+      {},
+      "read",
+    );
+  }
+
+  private isNotebookAllowed(notebookId: string): boolean {
+    if (this.#denylist.has(notebookId)) return false;
+    return this.#allowlist.size === 0 || this.#allowlist.has(notebookId);
+  }
+
+  private assertNotebookAllowed(notebookId: string): void {
+    if (!this.isNotebookAllowed(notebookId)) {
+      throw new AppError(
+        "NOTEBOOK_ACCESS_DENIED",
+        "The requested SiYuan notebook is outside the configured access policy.",
+        403,
+      );
+    }
+  }
+
+  private notebookAccessSql(column: string): string {
+    const clauses: string[] = [];
+    if (this.#allowlist.size > 0) {
+      clauses.push(`${column} IN (${sqlList(this.#allowlist)})`);
+    }
+    if (this.#denylist.size > 0) {
+      clauses.push(`${column} NOT IN (${sqlList(this.#denylist)})`);
+    }
+    return clauses.length > 0 ? ` AND ${clauses.join(" AND ")}` : "";
   }
 }
 
@@ -216,6 +267,10 @@ function normalizePath(path: string): string {
 
 function sqlLiteral(value: string): string {
   return value.replaceAll("'", "''");
+}
+
+function sqlList(values: Iterable<string>): string {
+  return [...values].map((value) => `'${sqlLiteral(value)}'`).join(", ");
 }
 
 function escapeLike(value: string): string {

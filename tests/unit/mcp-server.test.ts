@@ -7,7 +7,7 @@ import type { SiYuanNoteService } from "../../src/services/siyuan-note-service.j
 describe("MCP server", () => {
   it("publishes only read tools in anonymous mode", async () => {
     const service = {} as SiYuanNoteService;
-    const server = createMcpServer(service, { mode: "none" });
+    const server = createMcpServer(service, { mode: "none", writeEnabled: false });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "vitest", version: "1.0.0" });
 
@@ -19,6 +19,29 @@ describe("MCP server", () => {
       "list_documents",
       "search_notes",
       "get_document",
+    ]);
+
+    await client.close();
+    await server.close();
+  });
+
+  it("publishes write tools when anonymous writes are explicitly enabled", async () => {
+    const service = {} as SiYuanNoteService;
+    const server = createMcpServer(service, { mode: "none", writeEnabled: true });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "vitest", version: "1.0.0" });
+
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual([
+      "list_notebooks",
+      "list_documents",
+      "search_notes",
+      "get_document",
+      "create_document",
+      "append_content",
+      "update_block",
     ]);
 
     await client.close();

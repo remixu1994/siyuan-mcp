@@ -15,6 +15,7 @@ const config: Config = {
     timeoutMs: 1_000,
     readRetries: 0,
   },
+  notebookAccess: { allowlist: [], denylist: [] },
 };
 
 const initializeBody = {
@@ -74,7 +75,7 @@ describe("HTTP MCP endpoint", () => {
   });
 
   it("accepts an unauthenticated client in anonymous mode", async () => {
-    const app = buildApp({ ...config, auth: { mode: "none" } });
+    const app = buildApp({ ...config, auth: { mode: "none", writeEnabled: false } });
     const response = await app.inject({
       method: "POST",
       url: "/mcp",

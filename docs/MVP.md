@@ -8,10 +8,10 @@ V0.1 验证一条真实链路：ChatGPT GUI 或标准 MCP Client 经过认证后
 ChatGPT GUI ── OAuth 2.1 JWT ─┐
                               ├─> SiYuan MCP ── SiYuan Token ──> SiYuan HTTP API
 MCP Client ── Fixed Bearer ───┘
-Anonymous client ── No auth ──> SiYuan MCP（仅 4 个只读工具）
+Anonymous client ── No auth ──> SiYuan MCP（默认只读；可开启白名单内写入）
 ```
 
-三种入口模式是部署时互斥的 `AUTH_MODE`，不能在同一实例中混用。`none` 模式仅注册只读工具；`SIYUAN_TOKEN` 永远只存在于服务端。
+三种入口模式是部署时互斥的 `AUTH_MODE`，不能在同一实例中混用。`none` 模式默认只注册只读工具；只有 `ANONYMOUS_WRITE_ENABLED=true` 且笔记本白名单非空时才注册写工具。`SIYUAN_TOKEN` 永远只存在于服务端。
 
 ## 相对基础方案的必要调整
 
@@ -20,7 +20,7 @@ ChatGPT GUI 是首要客户端后，原方案中的“固定 Token + 不做 OAut
 因此：
 
 - 固定 Token 仍是通用 MCP Client 的最小路径。
-- 匿名模式仅用于无认证的只读联调，不属于私有数据的安全生产方案。
+- 匿名模式主要用于无认证联调；受限匿名写入是 ChatGPT GUI 的兼容方案，不属于私有数据的安全生产认证方案。
 - ChatGPT GUI 的 Definition of Done 以 OAuth 模式为准。
 - V0.1 实现 OAuth Resource Server 验证与发现元数据，但不自行实现身份库或授权服务器。
 - OAuth Provider 必须支持 MCP 所需的发现、Authorization Code、PKCE S256、JWT audience/resource 和 scope。
@@ -54,6 +54,7 @@ SQL 仅由服务端模板生成并转义参数。MCP schema 不存在 `sql` 输�
 - 读调用仅对临时故障重试，默认最多 2 次。
 - 写调用不重试；网络或网关结果不确定时返回 `OPERATION_STATUS_UNKNOWN`。
 - 工具错误不返回堆栈、文件路径、Token 或 Authorization Header。
+- 笔记本白名单和黑名单约束全部读写工具，黑名单优先；匿名写入强制要求非空白名单。
 
 ## 容器交付
 
@@ -66,7 +67,7 @@ PR 只构建不推送；`main`、`v*` 标签与手动工作流会推送。
 - `/health` 返回 `{ "status": "ok" }`。
 - 未认证和错误认证访问 `/mcp` 返回 401。
 - OAuth 模式发布 protected resource metadata，并能验证 Provider JWT。
-- none 模式无需 Authorization 即可初始化，且 `tools/list` 只返回 4 个只读工具。
+- none 模式无需 Authorization 即可初始化；默认只返回 4 个只读工具，显式开启白名单写入后返回全部 7 个工具。
 - MCP `initialize`、`tools/list`、`tools/call` 成功。
 - `tools/list` 可发现 7 个带 title、description、schema 和安全 annotations 的工具。
 - 7 个工具通过真实 SiYuan 验收，写入结果在 SiYuan GUI 中可见且不重复。

@@ -6,7 +6,7 @@ SiYuan MCP 是一个面向 ChatGPT、Codex、MCP Inspector 及其他 MCP Client 
 
 ```text
 ChatGPT / MCP Client
-        │  Authorization: Bearer <MCP Token 或 OAuth Access Token>
+        │  OAuth / Bearer / anonymous
         ▼
 SiYuan MCP Server  ── /mcp
         │  Authorization: Token <SIYUAN_TOKEN>
@@ -37,7 +37,7 @@ HTTP 端点：
 
 Server 支持三种互斥模式：
 
-- `none`：匿名只读，只发布 4 个读取工具，不检查 `Authorization`。
+- `none`：不检查 `Authorization`。默认只发布 4 个读取工具；可显式开启受笔记本白名单约束的写工具。
 - `fixed`：固定 Bearer Token，发布全部 7 个工具。
 - `oauth`：验证 OAuth Provider 签发的 JWT，发布全部 7 个工具。
 
@@ -80,7 +80,8 @@ SIYUAN_TOKEN=token replace-with-siyuan-token-body
 | `NODE_ENV` | 否 | `production` | `development`、`test` 或 `production`。 |
 | `HOST` | 否 | `0.0.0.0` | Server 监听地址；仅本机测试可使用 `127.0.0.1`。 |
 | `PORT` | 否 | `8080` | Server 监听端口，范围 `1-65535`。 |
-| `AUTH_MODE` | 否 | `fixed` | `none`、`fixed` 或 `oauth`。`none` 强制只读。 |
+| `AUTH_MODE` | 否 | `fixed` | `none`、`fixed` 或 `oauth`。 |
+| `ANONYMOUS_WRITE_ENABLED` | 否 | `false` | 仅 `AUTH_MODE=none` 生效；设为 `true` 后发布写工具，并强制要求非空笔记本白名单。 |
 | `MCP_FIXED_TOKEN` | `AUTH_MODE=fixed` | 无 | MCP 客户端使用的固定 Token，至少 16 个字符。不要加 `Bearer `。 |
 | `MCP_PUBLIC_URL` | `AUTH_MODE=oauth` | 无 | MCP 服务的公网 HTTPS 基础 URL，例如 `https://mcp.example.com`。 |
 | `OAUTH_ISSUER_URL` | `AUTH_MODE=oauth` | 无 | OAuth Provider 的 issuer，必须与 JWT 的 `iss` 完全一致。 |
@@ -89,6 +90,8 @@ SIYUAN_TOKEN=token replace-with-siyuan-token-body
 | `OAUTH_SCOPES` | 否 | `siyuan.read siyuan.write` | 空格分隔的可用 scope。 |
 | `SIYUAN_BASE_URL` | 是 | 无 | 思源服务基础 URL，例如 `http://127.0.0.1:6806` 或公网 HTTPS 地址；不要包含 Markdown 链接语法。 |
 | `SIYUAN_TOKEN` | 是 | 无 | 思源 API Token 本体；不要添加 `Token ` 或 `token ` 前缀。 |
+| `SIYUAN_NOTEBOOK_ALLOWLIST` | 否 | 空 | 逗号或空白分隔的思源笔记本 ID。非空时只允许访问这些笔记本；匿名写入时必填。 |
+| `SIYUAN_NOTEBOOK_DENYLIST` | 否 | 空 | 逗号或空白分隔的思源笔记本 ID。黑名单优先于白名单。 |
 | `SIYUAN_TIMEOUT_MS` | 否 | `20000` | 单次思源 API 请求超时，范围 `100-120000` 毫秒。 |
 | `SIYUAN_READ_RETRIES` | 否 | `2` | 只读请求遇到临时网络错误或 502/503/504 时的重试次数，范围 `0-5`。写操作不会自动重试。 |
 
@@ -107,7 +110,7 @@ SIYUAN_TOKEN=token replace-with-siyuan-token-body
 
 PowerShell 环境变量名应直接使用下划线，例如 `$env:SIYUAN_TOKEN`。不要写成 `$env:SIYUAN\_TOKEN`。
 
-## 匿名只读模式
+## 匿名模式与笔记本访问控制
 
 匿名模式用于 ChatGPT 无身份验证连接或临时联调：
 
@@ -116,14 +119,17 @@ NODE_ENV=production
 HOST=0.0.0.0
 PORT=8080
 AUTH_MODE=none
+ANONYMOUS_WRITE_ENABLED=false
 
 SIYUAN_BASE_URL=https://siyuan.example.com
 SIYUAN_TOKEN=replace-with-siyuan-token-body
+SIYUAN_NOTEBOOK_ALLOWLIST=
+SIYUAN_NOTEBOOK_DENYLIST=
 SIYUAN_TIMEOUT_MS=20000
 SIYUAN_READ_RETRIES=2
 ```
 
-`MCP_FIXED_TOKEN` 和全部 OAuth 变量在该模式下均不需要。Server 只发布：
+`MCP_FIXED_TOKEN` 和全部 OAuth 变量在该模式下均不需要。默认只发布：
 
 ```text
 list_notebooks
@@ -132,7 +138,23 @@ search_notes
 get_document
 ```
 
-匿名模式仍允许互联网上的任何人读取和搜索全部思源笔记。它只是阻止写入，并不保护私密内容；不要用于包含私人数据的正式部署。
+如需让 ChatGPT 无身份验证连接写入“系统架构”笔记本，使用该笔记本的 ID（不是显示名称）：
+
+```env
+AUTH_MODE=none
+ANONYMOUS_WRITE_ENABLED=true
+SIYUAN_NOTEBOOK_ALLOWLIST=20250220160346-dudilkq
+SIYUAN_NOTEBOOK_DENYLIST=
+```
+
+启动时会拒绝“匿名写入已开启但白名单为空”的配置。白名单和黑名单同时约束 `list_notebooks`、`list_documents`、`search_notes`、`get_document`、`create_document`、`append_content` 和 `update_block`：
+
+- 白名单为空时允许全部笔记本；匿名写入是唯一例外，必须提供非空白名单。
+- 白名单非空时只允许其中的笔记本。
+- 黑名单始终优先；同一个 ID 同时存在于两者时禁止访问。
+- 直接用文档 ID 或块 ID 调用也会先查询其所属笔记本，不能绕过策略。
+
+匿名写入意味着知道公网 MCP 地址的任何人都能读取并修改白名单内的笔记。白名单只缩小影响范围，不验证调用者身份；建议仅作为临时兼容方案，并在 Nginx、Cloudflare Access、VPN 或 OAuth 层增加身份验证。
 
 匿名冒烟测试：
 
@@ -247,7 +269,7 @@ npm run smoke:client
 
 ## ChatGPT GUI
 
-`AUTH_MODE=fixed` 适用于 MCP Inspector、脚本和能够自行设置 `Authorization` Header 的客户端。ChatGPT GUI 不能用这种方式让用户输入自定义 API Key。临时连接可以选择 ChatGPT 的“无身份验证”并使用 `AUTH_MODE=none`，但只能发现 4 个只读工具；涉及私有数据或写操作的公网 MCP 应使用 OAuth。
+`AUTH_MODE=fixed` 适用于 MCP Inspector、脚本和能够自行设置 `Authorization` Header 的客户端。ChatGPT GUI 不能用这种方式让用户输入自定义 API Key。临时连接可以选择 ChatGPT 的“无身份验证”并使用 `AUTH_MODE=none`；若同时开启 `ANONYMOUS_WRITE_ENABLED=true` 并配置非空白名单，ChatGPT 可发现全部 7 个工具。涉及私有数据或写操作的公网 MCP，OAuth 仍是推荐的正式方案。
 
 本项目在 `AUTH_MODE=oauth` 时充当 OAuth Resource Server：它验证 JWT 签名、issuer、audience、有效期及 scope，但**不负责登录页面、授权码签发或 Token 签发**。你仍需部署符合 MCP OAuth 要求的 OAuth Provider。
 
@@ -358,7 +380,8 @@ npm run build
 ## 安全与行为边界
 
 - MCP Token 与思源 Token 分离，服务端日志不记录认证 Header 或 Token。
-- `AUTH_MODE=none` 不注册任何写入工具，但仍会向所有匿名访问者暴露全部可读笔记内容。
+- `AUTH_MODE=none` 默认不注册写入工具；启用匿名写入后，仅允许操作白名单中的笔记本。
+- 笔记本黑白名单在服务层约束全部 7 个工具，黑名单优先，文档 ID 和块 ID 不能绕过检查。
 - 日志不记录完整 Markdown 或完整笔记内容。
 - SQL 完全由 Server 根据结构化参数生成，MCP Client 不能提交任意 SQL。
 - `create_document` 在写入前检查路径，不覆盖同路径文档。

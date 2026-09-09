@@ -15,13 +15,18 @@ export interface Authenticator {
 }
 
 export function createAuthenticator(config: Config["auth"]): Authenticator {
-  if (config.mode === "none") return new AnonymousAuthenticator();
+  if (config.mode === "none") return new AnonymousAuthenticator(config.writeEnabled);
   return config.mode === "fixed" ? new FixedTokenAuthenticator(config.token) : new OAuthAuthenticator(config);
 }
 
 class AnonymousAuthenticator implements Authenticator {
+  constructor(private readonly writeEnabled: boolean) {}
+
   async authenticate(): Promise<AuthContext> {
-    return { subject: "anonymous", scopes: ["siyuan.read"] };
+    return {
+      subject: "anonymous",
+      scopes: this.writeEnabled ? ["siyuan.read", "siyuan.write"] : ["siyuan.read"],
+    };
   }
 
   challenge(): void {
