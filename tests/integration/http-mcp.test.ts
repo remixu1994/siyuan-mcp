@@ -179,6 +179,13 @@ describe("HTTP MCP endpoint", () => {
       resource: publicUrl,
       authorization_servers: [publicUrl],
     });
+    expect(protectedMetadata.headers["cache-control"]).toBe("no-store");
+
+    const pathAwareProtectedMetadata = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-protected-resource/mcp",
+    });
+    expect(pathAwareProtectedMetadata.json()).toEqual(protectedMetadata.json());
 
     const authorizationMetadata = await app.inject({
       method: "GET",
@@ -191,6 +198,13 @@ describe("HTTP MCP endpoint", () => {
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
     });
+    expect(authorizationMetadata.headers["cache-control"]).toBe("no-store");
+
+    const pathAwareAuthorizationMetadata = await app.inject({
+      method: "GET",
+      url: "/.well-known/oauth-authorization-server/mcp",
+    });
+    expect(pathAwareAuthorizationMetadata.json()).toEqual(authorizationMetadata.json());
 
     const unauthenticated = await app.inject({
       method: "POST",

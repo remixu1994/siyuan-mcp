@@ -28,12 +28,23 @@ export function buildApp(config: Config): FastifyInstance {
   if (config.auth.mode === "oauth" || config.auth.mode === "mock-oauth") {
     const oauth = config.auth;
     const issuerUrl = oauth.mode === "oauth" ? oauth.issuerUrl : oauth.publicUrl;
-    app.get("/.well-known/oauth-protected-resource", async () => ({
+    const protectedResourceMetadata = () => ({
       resource: oauth.publicUrl,
       authorization_servers: [issuerUrl],
       scopes_supported: oauth.scopes,
       resource_documentation: `${oauth.publicUrl}/docs`,
-    }));
+    });
+    const sendProtectedResourceMetadata = async (
+      _request: unknown,
+      reply: { header: (name: string, value: string) => unknown },
+    ) => {
+      reply.header("cache-control", "no-store");
+      return protectedResourceMetadata();
+    };
+
+    app.get("/.well-known/oauth-protected-resource", sendProtectedResourceMetadata);
+    // RFC 9728 also allows path-aware discovery for a resource hosted at /mcp.
+    app.get("/.well-known/oauth-protected-resource/mcp", sendProtectedResourceMetadata);
   }
 
   if (mockOAuthProvider) registerMockOAuthRoutes(app, mockOAuthProvider);

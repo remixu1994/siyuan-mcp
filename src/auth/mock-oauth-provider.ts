@@ -196,7 +196,7 @@ export function registerMockOAuthRoutes(app: FastifyInstance, provider: MockOAut
     },
   );
 
-  app.get("/.well-known/oauth-authorization-server", async () => ({
+  const authorizationServerMetadata = () => ({
     issuer: provider.issuer,
     authorization_endpoint: `${provider.issuer}/authorize`,
     token_endpoint: `${provider.issuer}/token`,
@@ -205,7 +205,15 @@ export function registerMockOAuthRoutes(app: FastifyInstance, provider: MockOAut
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: provider.config.scopes,
-  }));
+  });
+  const sendAuthorizationServerMetadata = async (_request: unknown, reply: FastifyReply) => {
+    reply.header("cache-control", "no-store");
+    return authorizationServerMetadata();
+  };
+
+  app.get("/.well-known/oauth-authorization-server", sendAuthorizationServerMetadata);
+  // Some clients derive RFC 8414 discovery from the MCP endpoint path.
+  app.get("/.well-known/oauth-authorization-server/mcp", sendAuthorizationServerMetadata);
 
   app.get("/authorize", async (request, reply) => {
     try {
