@@ -234,7 +234,10 @@ describe("HTTP MCP endpoint", () => {
     expect(authorizationPage.statusCode).toBe(200);
     expect(authorizationPage.body).toContain('<form method="POST" action="/authorize">');
     expect(authorizationPage.body).not.toContain("fetch(");
-    expect(authorizationPage.headers["content-security-policy"]).toContain("form-action 'self'");
+    expect(authorizationPage.headers["content-security-policy"]).toContain(
+      "form-action 'self' https://chatgpt.com",
+    );
+    expect(authorizationPage.headers["content-security-policy"]).not.toContain("form-action *");
     expect(authorizationPage.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
     const requestId = /name="request_id" value="([^"]+)"/u.exec(authorizationPage.body)?.[1];
     expect(requestId).toBeTruthy();

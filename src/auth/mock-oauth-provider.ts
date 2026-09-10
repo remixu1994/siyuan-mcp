@@ -217,9 +217,11 @@ export function registerMockOAuthRoutes(app: FastifyInstance, provider: MockOAut
 
   app.get("/authorize", async (request, reply) => {
     try {
-      return reply.type("text/html; charset=utf-8").headers(htmlSecurityHeaders()).send(
-        provider.createAuthorizationPage(request.query as Record<string, unknown>),
-      );
+      const callbackOrigin = new URL(provider.config.redirectUri).origin;
+      return reply
+        .type("text/html; charset=utf-8")
+        .headers(htmlSecurityHeaders(callbackOrigin))
+        .send(provider.createAuthorizationPage(request.query as Record<string, unknown>));
     } catch (error) {
       return sendOAuthError(reply, error);
     }
@@ -326,10 +328,11 @@ function escapeHtml(value: string): string {
   })[character]!);
 }
 
-function htmlSecurityHeaders(): Record<string, string> {
+function htmlSecurityHeaders(callbackOrigin?: string): Record<string, string> {
+  const formAction = callbackOrigin ? `'self' ${callbackOrigin}` : "'self'";
   return {
     "cache-control": "no-store",
-    "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`,
     "x-content-type-options": "nosniff",
   };
 }
