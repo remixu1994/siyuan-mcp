@@ -232,6 +232,10 @@ describe("HTTP MCP endpoint", () => {
       url: `/authorize?${authorizeQuery}`,
     });
     expect(authorizationPage.statusCode).toBe(200);
+    expect(authorizationPage.body).toContain('<form method="POST" action="/authorize">');
+    expect(authorizationPage.body).not.toContain("fetch(");
+    expect(authorizationPage.headers["content-security-policy"]).toContain("form-action 'self'");
+    expect(authorizationPage.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
     const requestId = /name="request_id" value="([^"]+)"/u.exec(authorizationPage.body)?.[1];
     expect(requestId).toBeTruthy();
 
@@ -245,8 +249,9 @@ describe("HTTP MCP endpoint", () => {
       }).toString(),
     });
     expect(approval.statusCode).toBe(303);
-    expect(approval.headers.refresh).toContain("https://chatgpt.com/connector/oauth/test");
-    expect(approval.body).toContain("如果没有自动跳转，请点击这里继续授权");
+    expect(approval.headers["cache-control"]).toBe("no-store");
+    expect(approval.headers.refresh).toBeUndefined();
+    expect(approval.body).toBe("");
     const callback = new URL(approval.headers.location!);
     expect(callback.origin + callback.pathname).toBe(redirectUri);
     expect(callback.searchParams.get("state")).toBe("chatgpt-state");

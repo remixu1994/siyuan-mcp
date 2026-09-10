@@ -228,19 +228,20 @@ export function registerMockOAuthRoutes(app: FastifyInstance, provider: MockOAut
   app.post("/authorize", async (request, reply) => {
     try {
       const callbackUrl = provider.approve(request.body as Record<string, unknown>);
-      const escapedCallbackUrl = escapeHtml(callbackUrl);
+      request.log.info(
+        {
+          callbackUrl: redactAuthorizationCode(callbackUrl),
+          redirectStatus: 303,
+        },
+        "Mock OAuth authorization redirect issued",
+      );
       return reply
         .code(303)
         .headers({
-          ...htmlSecurityHeaders(),
+          "cache-control": "no-store",
           location: callbackUrl,
-          refresh: `0;url=${callbackUrl}`,
         })
-        .type("text/html; charset=utf-8")
-        .send(`<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<meta http-equiv="refresh" content="0;url=${escapedCallbackUrl}"><title>正在返回 ChatGPT</title></head>
-<body><p>正在返回 ChatGPT……</p><p><a href="${escapedCallbackUrl}">如果没有自动跳转，请点击这里继续授权</a></p></body></html>`);
+        .send();
     } catch (error) {
       return sendOAuthError(reply, error);
     }
@@ -268,7 +269,7 @@ main{border:1px solid #d4d4d8;border-radius:16px;padding:28px}input,button{box-s
 button{background:#18181b;color:white;border:0;border-radius:8px}code{overflow-wrap:anywhere}
 </style></head><body><main><h1>授权 SiYuan MCP</h1>
 <p>资源：<code>${escapeHtml(resource)}</code></p><p>权限：<code>${escapeHtml(scopes.join(" "))}</code></p>
-<form method="post" action="/authorize"><input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
+<form method="POST" action="/authorize"><input type="hidden" name="request_id" value="${escapeHtml(requestId)}">
 <label>临时访问码<input type="password" name="access_code" required autocomplete="current-password"></label>
 <button type="submit">授权 ChatGPT</button></form></main></body></html>`;
 }
@@ -335,4 +336,10 @@ function htmlSecurityHeaders(): Record<string, string> {
 
 function tokenHeaders(): Record<string, string> {
   return { "cache-control": "no-store", pragma: "no-cache" };
+}
+
+function redactAuthorizationCode(callbackUrl: string): string {
+  const redacted = new URL(callbackUrl);
+  if (redacted.searchParams.has("code")) redacted.searchParams.set("code", "[redacted]");
+  return redacted.toString();
 }
